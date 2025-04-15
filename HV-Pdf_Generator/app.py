@@ -118,7 +118,7 @@ def generate_document(option):
         # "<< Date (Signature) >>": date_field.strftime("%d-%m-%Y"),
     }
 
-    if st.button(f"Generate {option}"):
+    if st.button(f"Generate Document"):
         try:
             # Clear previous session state data
             if 'doc_data' in st.session_state:
@@ -194,53 +194,47 @@ def generate_document(option):
 
 # Hiring Contract Generator
 
+def replace_text_in_paragraph(paragraph, placeholders):
+    full_text = "".join(run.text for run in paragraph.runs)
+    
+    for key, value in placeholders.items():
+        if key in full_text:
+            full_text = full_text.replace(key, value)
+    
+    # Clear all runs
+    for run in paragraph.runs:
+        run.text = ""
+    
+    # Assign replaced full text to the first run
+    if paragraph.runs:
+        paragraph.runs[0].text = full_text
 
-def replace_placeholders(doc, placeholders):
-    """Replace placeholders in paragraphs and tables."""
-    for para in doc.paragraphs:
-        for key, value in placeholders.items():
-            if key in para.text:
-                for run in para.runs:
-                    if key in run.text:
-                        run.text = run.text.replace(key, value)
-                        
+def edit_hiring_template(template_path, output_path, placeholders):
+    doc = Document(template_path)
 
-    for table in doc.tables:
+    def replace_text_in_table(table):
         for row in table.rows:
             for cell in row.cells:
-                for key, value in placeholders.items():
-                    if key in cell.text:
-                        for para in cell.paragraphs:
-                            for run in para.runs:
-                                if key in run.text:
-                                    run.text = run.text.replace(key, value)
-                                    
-                                    
-    return doc
+                for paragraph in cell.paragraphs:
+                    replace_text_in_paragraph(paragraph, placeholders)
 
-def edit_hiring_template(template_name, output_path, placeholders):
-    """Edit an hiring contract template and save the result."""
-    try:
-        doc = Document(template_name)
-        replace_placeholders(doc, placeholders)
-        doc.save(output_path)
-        return output_path
-    except Exception as e:
-        raise Exception(f"Error editing hiring contract template: {e}")
+    for para in doc.paragraphs:
+        replace_text_in_paragraph(para, placeholders)
+
+    for table in doc.tables:
+        replace_text_in_table(table)
+
+    doc.save(output_path)
+
 def generate_hiring_contract():
-    if "hiring_docx" not in st.session_state:
-        st.session_state.hiring_docx = None
-    if "hiring_pdf" not in st.session_state:
-        st.session_state.hiring_pdf = None
-    if "hiring_docx_name" not in st.session_state:
-        st.session_state.hiring_docx_name = ""
-    if "hiring_pdf_name" not in st.session_state:
-        st.session_state.hiring_pdf_name = ""
-    
-    st.title("Hiring Contract Generator")
-    base_dir = os.path.abspath(os.path.dirname(__file__))
-    template_paths = os.path.join(base_dir, "Hiring Contract.docx")
+    # Initialize session state
+    for key in ["hiring_docx", "hiring_pdf", "hiring_docx_name", "hiring_pdf_name"]:
+        if key not in st.session_state:
+            st.session_state[key] = None if "name" not in key else ""
 
+    st.title("Hiring Contract Generator")
+
+    # Collect inputs
     Employee_name = st.text_input("Enter Employee Name:")
     Role = st.text_input("Enter Role:")
     date = st.date_input("Enter Date:", datetime.today())
@@ -251,89 +245,75 @@ def generate_hiring_contract():
     First_Pay_Cheque_Date = st.date_input("Enter the First Pay Cheque Date:")
 
     placeholders = {
-        "<<Today’s Date>>": date.strftime("%d-%m-%Y"),
-        "<<Name>>": Employee_name,
-        "<<Role>>": Role,
-        "<<Starting Date>>": Starting_Date.strftime("%d-%m-%Y"),
-        "<<Stipend>>": str(Stipend),
-        "<<Working Hours>>": str(Working_hours),
-        "<<Internship Duration months>>": str(Internship_duration),
-        "<<First Pay Cheque Date>>": First_Pay_Cheque_Date.strftime("%d-%m-%Y")
-    }
+    "<<Date>>": date.strftime("%d-%m-%Y"),
+    "<<Name>>": Employee_name,
+    "<<Role>>": Role,
+    "<<Starting Date>>": Starting_Date.strftime("%d %B %Y"),
+    "<<Internship Duration>>": str(int(Internship_duration)),  
+    "<<First Pay>>": First_Pay_Cheque_Date.strftime("%d %B %Y"),  
+    "<<Stipend>>": str(Stipend),
+    "<<Working Hours>>": str(int(Working_hours))
+}
+    template_name = "Hiring Contract.docx"
 
     if st.button("Generate Hiring Contract"):
         try:
-            # Clear previous session state data
-            if 'hiring_docx' in st.session_state:
-                del st.session_state.hiring_docx
-                del st.session_state.hiring_pdf
-                del st.session_state.hiring_docx_name
-                del st.session_state.hiring_pdf_name
+            # Reset session state
+            for key in ["hiring_docx", "hiring_pdf", "hiring_docx_name", "hiring_pdf_name"]:
+                if key in st.session_state:
+                    del st.session_state[key]
 
-            # Define the hiring contract template file path
-            template_path = os.path.join(os.getcwd(), template_paths)
-
-            # Save the hiring to a temporary directory
+            # Paths
+            template_path = os.path.join(os.getcwd(), template_name)
             temp_dir = tempfile.gettempdir()
-            docx_output_path = os.path.join(temp_dir, f"Hiring Contract_{Employee_name}.docx")
+            docx_output_path = os.path.join(temp_dir, f"Hiring_{Employee_name}.docx")
+            pdf_output_path = os.path.join(temp_dir, f"Hiring_{Employee_name}.pdf")
 
-            # Edit the template and save the hiring
+            # 🔧 Edit and check DOCX generation
             edit_hiring_template(template_path, docx_output_path, placeholders)
 
-            # Check if the DOCX file was created successfully
-            if not os.path.exists(docx_output_path):
-                raise Exception(f"Failed to generate DOCX file at {docx_output_path}")
+            if os.path.exists(docx_output_path):
+                with open(docx_output_path, "rb") as file:
+                    st.session_state.hiring_docx = file.read()
+                st.session_state.hiring_docx_name = f"Hiring_{Employee_name}.docx"
+            else:
+                st.error("❌ DOCX file was not generated. Please check the template and data.")
+                return
 
-            # Read DOCX file bytes into session state
-            with open(docx_output_path, "rb") as file:
-                st.session_state.hiring_docx = file.read()
-            st.session_state.hiring_docx_name = f"Hiring Contract_{Employee_name}.docx"
-
-            # Generate PDF and store in session state
-            pdf_output_path = os.path.join(temp_dir, f"Hiring Contract_{Employee_name}.pdf")
-            pythoncom.CoInitialize()  # Initialize COM library
+            # 🔧 Convert to PDF safely
             try:
+                pythoncom.CoInitialize()
                 convert(docx_output_path, pdf_output_path)
-                # Check if the PDF file was created successfully
-                if not os.path.exists(pdf_output_path):
-                    raise Exception(f"Failed to generate PDF file at {pdf_output_path}")
-
-                with open(pdf_output_path, "rb") as file:
-                    st.session_state.hiring_pdf = file.read()
-                st.session_state.hiring_pdf_name = f"Hiring Contract_{Employee_name}.pdf"
+                if os.path.exists(pdf_output_path):
+                    with open(pdf_output_path, "rb") as file:
+                        st.session_state.hiring_pdf = file.read()
+                    st.session_state.hiring_pdf_name = f"Hiring_{Employee_name}.pdf"
+                else:
+                    st.warning("⚠️ PDF conversion failed. DOCX is available.")
             finally:
                 pythoncom.CoUninitialize()
 
-            st.success(f"✅ Hiring Contract generated successfully!")
+            st.success("✅ Hiring contract generated successfully!")
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
-    # Display download buttons if data exists in session state
-    if 'hiring_docx' in st.session_state and 'hiring_pdf' in st.session_state:
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.session_state.hiring_docx:
-                st.download_button(
-                    label="📥 Download Hiring Contract (Word)",
-                    data=st.session_state.hiring_docx,
-                    file_name=st.session_state.hiring_docx_name,
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                )
-            else:
-                st.warning("DOCX file not available.")
+    # 🔽 Download buttons
+    if st.session_state.hiring_docx:
+        st.download_button(
+            label="📥 Download Hiring (Word)",
+            data=st.session_state.hiring_docx,
+            file_name=st.session_state.hiring_docx_name,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
 
-        with col2:
-            if st.session_state.hiring_pdf:
-                st.download_button(
-                    label="📥 Download Hiring Contract (PDF)",
-                    data=st.session_state.hiring_pdf,
-                    file_name=st.session_state.hiring_pdf_name,
-                    mime="application/pdf"
-                )
-            else:
-                st.warning("PDF file not available.")
-
+    if st.session_state.hiring_pdf:
+        st.download_button(
+            label="📥 Download Hiring (PDF)",
+            data=st.session_state.hiring_pdf,
+            file_name=st.session_state.hiring_pdf_name,
+            mime="application/pdf"
+        )
 
 
 # Invoice Generator (unchanged)
@@ -365,7 +345,7 @@ def get_next_invoice_number():
 def amount_to_words(amount):
     """Convert amount to words without currency formatting."""
     words = num2words(amount, lang='en').replace(',', '').title()
-    
+
     return words
 
 def replace_placeholders(doc, placeholders):
