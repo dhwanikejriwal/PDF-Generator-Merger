@@ -2,4 +2,3 @@ streamlit
 python-docx
 num2words
 docx2pdf
-pywin32  # Required for COM support on Windows
