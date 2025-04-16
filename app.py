@@ -11,6 +11,9 @@ import uuid
 First_Page_Folder = "pdfs\First_page"
 Last_Page_Folder = "pdfs\Last_page"
 
+os.makedirs(First_Page_Folder, exist_ok=True)
+os.makedirs(Last_Page_Folder, exist_ok=True)
+
 st.set_page_config(page_title = "PDF Merger", layout = "centered")
 
 st.title("Merge PDFs")
