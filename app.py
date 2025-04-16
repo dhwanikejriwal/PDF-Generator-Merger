@@ -4,13 +4,11 @@ from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import io
 import base64
 
-# Set folders
-First_Page_Folder = "pdfs/First_page"
-Last_Page_Folder = "pdfs/Last_page"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Create folders if running locally (optional)
-os.makedirs(First_Page_Folder, exist_ok=True)
-os.makedirs(Last_Page_Folder, exist_ok=True)
+First_Page_Folder = os.path.join(BASE_DIR, "pdfs", "First_page")
+Last_Page_Folder = os.path.join(BASE_DIR, "pdfs", "Last_page")
+
 
 st.set_page_config(page_title="PDF Merger", layout="centered")
 st.title("📄 Merge PDFs with Preview")
