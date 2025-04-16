@@ -2,3 +2,4 @@ streamlit
 python-docx
 num2words
 docx2pdf ; sys_platform == "win32"
+pywin32 ; sys_platform == "win32"
