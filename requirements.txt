@@ -1,7 +1,7 @@
 streamlit
 python-docx
-PyPDF2
+comtypes; platform_system == "Windows"
+pythoncom; platform_system == "Windows"
 Pillow
-PyMuPDF
-num2words
-pypiwin32 ; platform_system == "Windows"git
+PyPDF2
+pymupdf

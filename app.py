@@ -12,7 +12,6 @@ import fitz
 from docx.oxml.ns import qn
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 import tempfile
-from num2words import num2words
 import uuid
 import pythoncom
 
