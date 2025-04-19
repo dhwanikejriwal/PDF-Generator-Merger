@@ -1,4 +1,7 @@
 streamlit
 python-docx
+PyPDF2
+Pillow
+PyMuPDF
 num2words
-weasyprint 
+pypiwin32 ; platform_system == "Windows"git 
