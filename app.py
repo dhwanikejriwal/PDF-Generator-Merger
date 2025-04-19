@@ -13,7 +13,6 @@ from docx.oxml.ns import qn
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 import tempfile
 import uuid
-import pythoncom
 
 
 def convert_to_pdf(doc_path, pdf_path):
