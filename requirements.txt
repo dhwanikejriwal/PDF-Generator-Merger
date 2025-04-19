@@ -4,4 +4,4 @@ PyPDF2
 Pillow
 PyMuPDF
 num2words
-pypiwin32 ; platform_system == "Windows"git 
+pypiwin32 ; platform_system == "Windows"git
