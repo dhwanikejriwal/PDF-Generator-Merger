@@ -44,83 +44,49 @@ def initialize_session_state():
 
 # Call this function at the start of your main function
 def convert_to_pdf(doc_path, pdf_path):
-    """Convert Word document to PDF with better error handling and fallbacks."""
-    if platform.system() == "Windows":
-        # Windows conversion logic (unchanged)
-        ...
-    else:
-        # Try multiple conversion methods
-        conversion_methods = [
-            # Method 1: LibreOffice
-            {
-                "name": "LibreOffice",
-                "command": lambda: subprocess.run(
-                    ['libreoffice', '--headless', '--convert-to', 'pdf', 
-                     '--outdir', os.path.dirname(pdf_path), doc_path],
-                    check=True, capture_output=True, text=True
-                )
-            },
-            # Method 2: unoconv
-            {
-                "name": "unoconv",
-                "command": lambda: subprocess.run(
-                    ['unoconv', '-f', 'pdf', '-o', os.path.dirname(pdf_path), doc_path],
-                    check=True, capture_output=True, text=True
-                )
-            },
-            # Method 3: docx2pdf
-            {
-                "name": "docx2pdf",
-                "command": lambda: alternative_convert_to_pdf(doc_path, pdf_path)
-            }
-        ]
-        
-        # Try each method in order
-        errors = []
-        for method in conversion_methods:
+    doc_path = os.path.abspath(doc_path)
+    pdf_path = os.path.abspath(pdf_path)
+
+    if not os.path.exists(doc_path):
+        raise FileNotFoundError(f"Word document not found at {doc_path}")
+
+    # Use a temporary directory for intermediate files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_pdf_path = os.path.join(temp_dir, "temp_output.pdf")
+
+        # Step 1: Convert Word to PDF
+        if platform.system() == "Windows":
             try:
-                logger.info(f"Attempting PDF conversion with {method['name']}")
-                method["command"]()
-                
-                # Check if PDF was created
-                if os.path.exists(pdf_path) or os.path.exists(os.path.splitext(doc_path)[0] + '.pdf'):
-                    logger.info(f"PDF conversion successful with {method['name']}")
-                    return
-                else:
-                    errors.append(f"{method['name']}: PDF not created")
+                import comtypes.client
+                import pythoncom
+                pythoncom.CoInitialize()
+                word = comtypes.client.CreateObject("Word.Application")
+                word.Visible = False
+                doc = word.Documents.Open(doc_path)
+                doc.SaveAs(temp_pdf_path, FileFormat=17)  # FileFormat=17 is for PDF
+                doc.Close()
+                word.Quit()
+                pythoncom.CoUninitialize()
             except Exception as e:
-                errors.append(f"{method['name']}: {str(e)}")
-                logger.warning(f"{method['name']} conversion failed: {e}")
-                continue
-        
-        # If we got here, all methods failed
-        raise Exception(f"PDF conversion failed with all methods: {'; '.join(errors)}")
-def alternative_convert_to_pdf(doc_path, pdf_path):
-    """Alternative PDF conversion using reportlab and python-docx."""
-    try:
-        from docx2pdf import convert
-        convert(doc_path, pdf_path)
-    except ImportError:
-        try:
-            # Try a different approach using reportlab and python-docx
-            from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Paragraph
-            from reportlab.lib.styles import getSampleStyleSheet
-            from docx import Document
-            
-            # Extract text from DOCX
-            doc = Document(doc_path)
-            full_text = []
-            for para in doc.paragraphs:
-                full_text.append(para.text)
-            
-            # Generate simple PDF
-            pdf = SimpleDocTemplate(pdf_path, pagesize=letter)
-            styles = getSampleStyleSheet()
-            content = [Paragraph(text, styles["Normal"]) for text in full_text if text.strip()]
-            pdf.build(content)
-        except Exception as e:
-            raise Exception(f"Failed to convert DOCX to PDF using alternative methods: {e}")
+                raise Exception(f"Error using COM on Windows: {e}")
+        else:
+            try:
+                subprocess.run(
+                    ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', temp_dir, doc_path],
+                    check=True
+                )
+                # LibreOffice will save the PDF in the same folder as the DOCX with .pdf extension
+                temp_pdf_path = os.path.join(temp_dir, os.path.basename(doc_path).replace('.docx', '.pdf'))
+            except subprocess.CalledProcessError as e:
+                raise Exception(f"Error using LibreOffice: {e}")
+
+        # Step 2: Flatten the PDF (convert to image-based PDF)
+        # Save it to the final location (pdf_path) instead of keeping it inside the temp folder
+        flatten_pdf(temp_pdf_path, pdf_path)
+
+        # Optionally, confirm it was created
+        if not os.path.exists(pdf_path):
+            raise FileNotFoundError(f"Flattened PDF file was not saved correctly: {pdf_path}")
 
 def flatten_pdf(input_pdf_path, output_pdf_path):
     """
@@ -334,7 +300,7 @@ def generate_contract():
             pdf_output_path = os.path.join(temp_dir, f"Contract_{safe_name}.pdf")
 
             # Edit the template and save the contract
-            edit_hiring_template(template_path, docx_output_path, placeholders)
+            edit_contract_template(template_path, docx_output_path, placeholders)
             # st.info("DOCX file created successfully. Converting to PDF...")
 
             # Load the generated DOCX file into session state for download
@@ -389,7 +355,7 @@ def generate_contract():
             import traceback
             st.code(traceback.format_exc())
 
-
+#NDA 
 def replace_text_in_paragraph(paragraph, placeholders):
     """Replace placeholders in a paragraph, preserving formatting and optionally bolding specific runs."""
     # Combine all run texts
