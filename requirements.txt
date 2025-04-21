@@ -6,3 +6,4 @@ fitz
 num2words
 comtypes; platform_system == "Windows"
 docx2pdf
+PyMuPDF
