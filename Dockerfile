@@ -17,6 +17,12 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    # Additional dependencies for PyMuPDF
+    swig \
+    libfreetype6-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    libmupdf-dev \
     && apt-get clean
 
 # Copy only requirements to leverage Docker cache
