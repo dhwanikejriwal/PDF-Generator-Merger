@@ -9,8 +9,10 @@ WORKDIR /app
 COPY . /app
 
 # Install system dependencies (LibreOffice and other tools)
+# Install system dependencies (LibreOffice and other tools)
 RUN apt-get update && \
     apt-get install -y libreoffice libgl1-mesa-glx libglib2.0-0 && \
+    if [ ! -e /usr/bin/soffice ]; then ln -s /usr/bin/libreoffice /usr/bin/soffice; fi && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
