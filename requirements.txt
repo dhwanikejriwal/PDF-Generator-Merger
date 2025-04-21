@@ -5,3 +5,4 @@ pythoncom; platform_system == "Windows"
 Pillow
 PyPDF2
 pymupdf
+num2words
