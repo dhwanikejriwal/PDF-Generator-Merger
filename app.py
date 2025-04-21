@@ -17,6 +17,11 @@ import logging
 import sys
 from num2words import num2words
 
+
+port = int(os.environ.get("PORT", 8080))  # Default to 8080
+st.set_page_config(page_title="PDF Generator")
+st.title("PDF Generator App")
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
