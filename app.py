@@ -13,18 +13,37 @@ from docx.oxml.ns import qn
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 import tempfile
 import uuid
+import logging
+import sys
+from num2words import num2words
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+logger = logging.getLogger("pdf_generator")
 
 def convert_to_pdf(doc_path, pdf_path):
+    """Convert Word document to PDF with better error handling."""
     doc_path = os.path.abspath(doc_path)
     pdf_path = os.path.abspath(pdf_path)
 
     if not os.path.exists(doc_path):
         raise FileNotFoundError(f"Word document not found at {doc_path}")
 
+    logger.info(f"Converting document: {doc_path} to PDF: {pdf_path}")
+
     # Use a temporary directory for the intermediate PDF file
     with tempfile.TemporaryDirectory() as temp_dir:
-        temp_pdf_path = os.path.join(temp_dir, "temp_output.pdf")
+        # Get just the filename without path
+        doc_filename = os.path.basename(doc_path)
+        expected_pdf_name = os.path.splitext(doc_filename)[0] + ".pdf"
+        temp_pdf_path = os.path.join(temp_dir, expected_pdf_name)
 
         # Step 1: Convert Word to PDF
         if platform.system() == "Windows":
@@ -38,19 +57,122 @@ def convert_to_pdf(doc_path, pdf_path):
                 doc.SaveAs(temp_pdf_path, FileFormat=17)  # FileFormat=17 is for PDF
                 doc.Close()
                 word.Quit()
+                logger.info("Windows COM conversion completed")
             except Exception as e:
+                logger.error(f"Error using COM on Windows: {e}", exc_info=True)
                 raise Exception(f"Error using COM on Windows: {e}")
         else:
             try:
-                subprocess.run(
+                # Run LibreOffice conversion
+                logger.info(f"Running LibreOffice conversion to {temp_dir}")
+                result = subprocess.run(
                     ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', temp_dir, doc_path],
-                    check=True
+                    check=True,
+                    capture_output=True,
+                    text=True
                 )
+                logger.info(f"LibreOffice stdout: {result.stdout}")
+                
+                # Check if the expected PDF file exists in the temp directory
+                if not os.path.exists(temp_pdf_path):
+                    logger.warning(f"Expected PDF not found at {temp_pdf_path}, searching for alternatives...")
+                    # Try to find any PDF file that was created
+                    pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
+                    if pdf_files:
+                        temp_pdf_path = os.path.join(temp_dir, pdf_files[0])
+                        logger.info(f"Found alternative PDF: {temp_pdf_path}")
+                    else:
+                        # If no PDF was found, try using direct path instead
+                        direct_pdf_path = os.path.splitext(doc_path)[0] + '.pdf'
+                        if os.path.exists(direct_pdf_path):
+                            temp_pdf_path = direct_pdf_path
+                            logger.info(f"Using direct PDF path: {temp_pdf_path}")
+                        else:
+                            # Try alternative conversion
+                            try:
+                                logger.info("Attempting alternative PDF conversion using docx2pdf...")
+                                alternative_convert_to_pdf(doc_path, temp_pdf_path)
+                                if os.path.exists(temp_pdf_path):
+                                    logger.info(f"Alternative conversion successful: {temp_pdf_path}")
+                                else:
+                                    raise FileNotFoundError("Alternative conversion did not produce a PDF file")
+                            except Exception as alt_err:
+                                logger.error(f"Alternative conversion failed: {alt_err}", exc_info=True)
+                                raise FileNotFoundError(f"PDF conversion failed. No PDF file was created. LibreOffice output: {result.stdout}\nError: {result.stderr}")
             except subprocess.CalledProcessError as e:
-                raise Exception(f"Error using LibreOffice: {e}")
+                logger.error(f"LibreOffice conversion failed: {e}", exc_info=True)
+                # Try alternative method - use unoconv if available
+                try:
+                    logger.info("Attempting unoconv conversion...")
+                    subprocess.run(['unoconv', '-f', 'pdf', '-o', temp_dir, doc_path], check=True)
+                    # Check if PDF was created
+                    pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
+                    if pdf_files:
+                        temp_pdf_path = os.path.join(temp_dir, pdf_files[0])
+                        logger.info(f"Unoconv created PDF: {temp_pdf_path}")
+                    else:
+                        # Try alternative conversion
+                        logger.info("Unoconv didn't create a PDF, trying alternative method...")
+                        alternative_convert_to_pdf(doc_path, temp_pdf_path)
+                        if not os.path.exists(temp_pdf_path):
+                            raise Exception("PDF conversion failed with all methods")
+                except Exception as uno_err:
+                    logger.error(f"Unoconv conversion failed: {uno_err}", exc_info=True)
+                    # Last resort - try direct alternative conversion
+                    try:
+                        logger.info("Last resort - direct alternative conversion...")
+                        alternative_convert_to_pdf(doc_path, pdf_path)
+                        # If successful, early return
+                        if os.path.exists(pdf_path):
+                            logger.info(f"Direct alternative conversion successful: {pdf_path}")
+                            return
+                        else:
+                            raise Exception(f"Error using LibreOffice: {e}. Unoconv fallback also failed: {uno_err}")
+                    except Exception as final_err:
+                        logger.error(f"All conversion methods failed: {final_err}", exc_info=True)
+                        raise Exception(f"All PDF conversion methods failed: {final_err}")
 
-        # Step 2: Flatten the PDF (convert to image-based PDF)
-        flatten_pdf(temp_pdf_path, pdf_path)
+        # Verify the PDF exists before proceeding
+        if not os.path.exists(temp_pdf_path):
+            raise FileNotFoundError(f"Expected PDF file not found at {temp_pdf_path}")
+            
+        # Step 2: Flatten the PDF or just copy it if flattening is not needed
+        try:
+            logger.info(f"Flattening PDF from {temp_pdf_path} to {pdf_path}")
+            flatten_pdf(temp_pdf_path, pdf_path)
+        except Exception as flatten_err:
+            logger.warning(f"PDF flattening failed: {flatten_err}. Using direct copy instead.", exc_info=True)
+            # If flattening fails, just copy the PDF
+            import shutil
+            shutil.copy2(temp_pdf_path, pdf_path)
+            logger.info(f"Direct copy completed to {pdf_path}")
+
+def alternative_convert_to_pdf(doc_path, pdf_path):
+    """Alternative PDF conversion using reportlab and python-docx."""
+    try:
+        from docx2pdf import convert
+        convert(doc_path, pdf_path)
+    except ImportError:
+        try:
+            # Try a different approach using reportlab and python-docx
+            from reportlab.lib.pagesizes import letter
+            from reportlab.platypus import SimpleDocTemplate, Paragraph
+            from reportlab.lib.styles import getSampleStyleSheet
+            from docx import Document
+            
+            # Extract text from DOCX
+            doc = Document(doc_path)
+            full_text = []
+            for para in doc.paragraphs:
+                full_text.append(para.text)
+            
+            # Generate simple PDF
+            pdf = SimpleDocTemplate(pdf_path, pagesize=letter)
+            styles = getSampleStyleSheet()
+            content = [Paragraph(text, styles["Normal"]) for text in full_text if text.strip()]
+            pdf.build(content)
+        except Exception as e:
+            raise Exception(f"Failed to convert DOCX to PDF using alternative methods: {e}")
 
 def flatten_pdf(input_pdf_path, output_pdf_path):
     """
@@ -59,29 +181,33 @@ def flatten_pdf(input_pdf_path, output_pdf_path):
     if not os.path.exists(input_pdf_path):
         raise FileNotFoundError(f"Input PDF file not found: {input_pdf_path}")
 
-    doc = fitz.open(input_pdf_path)  # Open the original PDF
-    writer = PdfWriter()
+    try:
+        doc = fitz.open(input_pdf_path)  # Open the original PDF
+        writer = PdfWriter()
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            pix = page.get_pixmap(dpi=300)  # Render page to an image with 300 DPI
-            image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                pix = page.get_pixmap(dpi=300)  # Render page to an image with 300 DPI
+                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            # Save the image as a temporary PDF
-            temp_page_path = os.path.join(temp_dir, f"temp_page_{page_num}.pdf")
-            image.save(temp_page_path, "PDF")
+                # Save the image as a temporary PDF
+                temp_page_path = os.path.join(temp_dir, f"temp_page_{page_num}.pdf")
+                image.save(temp_page_path, "PDF")
 
-            # Read the temporary PDF and add it to the writer
-            reader = PdfReader(temp_page_path)
-            writer.add_page(reader.pages[0])
+                # Read the temporary PDF and add it to the writer
+                reader = PdfReader(temp_page_path)
+                writer.add_page(reader.pages[0])
 
-    # Save the flattened PDF
-    with open(output_pdf_path, "wb") as f:
-        writer.write(f)
+        # Save the flattened PDF
+        with open(output_pdf_path, "wb") as f:
+            writer.write(f)
 
-    print(f"Flattened PDF saved at: {output_pdf_path}")
-
+        logger.info(f"Flattened PDF saved at: {output_pdf_path}")
+    except Exception as e:
+        logger.error(f"Error in PDF flattening: {e}", exc_info=True)
+        # If flattening fails, allow the original function to handle the exception
+        raise
 
 # Common Functions (unchanged)
 def apply_formatting(run, font_name, font_size, bold=False):
@@ -127,6 +253,7 @@ def edit_word_template(template_path, output_path, placeholders, font_name, font
         doc.save(output_path)
         return output_path
     except Exception as e:
+        logger.error(f"Error editing Word template: {e}", exc_info=True)
         raise Exception(f"Error editing Word template: {e}")
 
 def apply_image_placeholder(doc, placeholder_key, image_file):
@@ -154,24 +281,33 @@ def apply_image_placeholder(doc, placeholder_key, image_file):
                 placeholder_found = True
 
         if not placeholder_found:
-            raise ValueError(f"Placeholder '{placeholder_key}' not found in the document.")
+            logger.warning(f"Placeholder '{placeholder_key}' not found in the document.")
         
         return doc
 
     except Exception as e:
-        print(f"Error inserting image: {e}")
+        logger.error(f"Error inserting image: {e}", exc_info=True)
         return None  # Returning None to indicate failure
 
 # Contract/NDA Generator
 def generate_document(option):
     """Streamlit UI for generating NDA or Contract documents."""
-    st.title("Document Generator")
+    if option== "NDA":
+        st.title("NDA Generator")
+    elif option == "Contract":
+        st.title("Contract Generator")
+    
 
     base_dir = os.path.abspath(os.path.dirname(__file__))
     template_paths = {
         "NDA": os.path.join(base_dir, "NDA Template.docx"),
         "Contract": os.path.join(base_dir, "Contract Template.docx"),
     }
+
+    # Check if template exists
+    if not os.path.exists(template_paths[option]):
+        st.error(f"Template file missing: {template_paths[option]}")
+        return
 
     client_name = st.text_input("Enter Client Name:")
     company_name = st.text_input("Enter Company Name:")
@@ -184,20 +320,18 @@ def generate_document(option):
         "Address": address,
         "Date": date_field.strftime("%d-%m-%Y"),
         "Date,": date_field.strftime("%d-%m-%Y"),
-        "ContractEndDate": date_field.replace(year=1).strftime("%d-%m-%Y"),
+        "ContractEndDate": date_field.replace(year=date_field.year + 1).strftime("%d-%m-%Y"),
     }
 
     if st.button(f"Generate Document"):
         try:
             # Clear previous session state data
-            if 'doc_data' in st.session_state:
-                del st.session_state.doc_data
-                del st.session_state.pdf_data
-                del st.session_state.filenames
+            for key in ['doc_data', 'pdf_data', 'filenames']:
+                if key in st.session_state:
+                    del st.session_state[key]
 
             formatted_date = date_field.strftime("%d %b %Y")
-            unique_id = str(uuid.uuid4())[:8]
-            doc_filename = f"{option} - {client_name} {formatted_date} - {unique_id}.docx"
+            doc_filename = f"{option} - {client_name} {formatted_date}.docx"
             pdf_filename = doc_filename.replace(".docx", ".pdf")
 
             # Create temporary files
@@ -211,48 +345,68 @@ def generate_document(option):
                 replace_and_format(doc, placeholders, "Times New Roman", font_size, option)
 
                 doc.save(doc_path)
+                logger.info(f"Document saved to {doc_path}")
 
-                convert_to_pdf(doc_path , pdf_path)
-
-                with open(doc_path,"rb") as doc_file:
+                # Save DOCX to session state
+                with open(doc_path, "rb") as doc_file:
                     st.session_state.doc_data = doc_file.read()
-
-                with open(pdf_path, "rb") as pdf_file:
-                    st.session_state.pdf_data = pdf_file.read()
+                
+                # Try to convert to PDF
+                try:
+                    st.info("Converting document to PDF...")
+                    convert_to_pdf(doc_path, pdf_path)
+                    
+                    if os.path.exists(pdf_path):
+                        with open(pdf_path, "rb") as pdf_file:
+                            st.session_state.pdf_data = pdf_file.read()
+                        logger.info(f"PDF conversion successful: {pdf_path}")
+                    else:
+                        st.warning("PDF conversion failed. Only DOCX will be available.")
+                        logger.warning(f"PDF file not found after conversion: {pdf_path}")
+                except Exception as pdf_err:
+                    st.warning(f"Error during PDF conversion: {pdf_err}")
+                    logger.error(f"PDF conversion error: {pdf_err}", exc_info=True)
                 
                 st.session_state.filenames = {
-                "doc": doc_filename,
-                "pdf": pdf_filename
+                    "doc": doc_filename,
+                    "pdf": pdf_filename
                 }
+            
             st.success(f"{option} Document Generated Successfully!")
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
+            logger.error(f"Error in generate_document: {e}", exc_info=True)
     
-    if 'doc_data' in st.session_state and 'pdf_data' in st.session_state:
-        col1 , col2 = st.columns(2)
+    # Display download buttons
+    if 'doc_data' in st.session_state:
+        col1, col2 = st.columns(2)
         with col1:
             st.download_button(
-                label = "Download Document (Word)",
-                data =st.session_state.doc_data,
-                file_name = st.session_state.filenames["doc"],
+                label="Download Document (Word)",
+                data=st.session_state.doc_data,
+                file_name=st.session_state.filenames["doc"],
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 key="download_word"
             )
         
-        with col2:
-            st.download_button(
-                label = "Download Document (PDF)",
-                data = st.session_state.pdf_data,
-                file_name = st.session_state.filenames["pdf"],
-                mime="application/pdf",
-                key="download_pdf"
-            )
+        if 'pdf_data' in st.session_state:
+            with col2:
+                st.download_button(
+                    label="Download Document (PDF)",
+                    data=st.session_state.pdf_data,
+                    file_name=st.session_state.filenames["pdf"],
+                    mime="application/pdf",
+                    key="download_pdf"
+                )
             
 
-#Hiring COntract
-
+# Hiring Contract
 def replace_text_in_paragraph(paragraph, placeholders):
+    """Replace placeholders in paragraph text."""
+    if not paragraph.runs:
+        return
+        
     full_text = "".join(run.text for run in paragraph.runs)
     
     for key, value in placeholders.items():
@@ -260,8 +414,9 @@ def replace_text_in_paragraph(paragraph, placeholders):
             full_text = full_text.replace(key, value)
     
     # Clear all runs
-    for run in paragraph.runs:
-        run.text = ""
+    for i in range(len(paragraph.runs) - 1, 0, -1):
+        p = paragraph._p
+        p.remove(paragraph.runs[i]._r)
     
     # Assign replaced full text to the first run
     if paragraph.runs:
@@ -269,6 +424,7 @@ def replace_text_in_paragraph(paragraph, placeholders):
 
 # Function to edit the Hiring template and replace placeholders
 def edit_hiring_template(template_path, output_path, placeholders):
+    """Edit hiring contract template replacing placeholders."""
     doc = Document(template_path)
 
     def replace_text_in_table(table):
@@ -284,8 +440,10 @@ def edit_hiring_template(template_path, output_path, placeholders):
         replace_text_in_table(table)
 
     doc.save(output_path)
+    return output_path
 
 def generate_hiring_contract():
+    """Streamlit UI for generating hiring contracts."""
     # Initialize session state for DOCX and PDF
     for key in ["hiring_docx", "hiring_pdf", "hiring_docx_name", "hiring_pdf_name"]:
         if key not in st.session_state:
@@ -315,73 +473,85 @@ def generate_hiring_contract():
     }
 
     template_name = "Hiring Contract.docx"
+    
     if st.button("Generate Hiring Contract"):
         try:
             # Clear previous session state data
-            if 'hiring_docx' in st.session_state:
-                del st.session_state.hiring_docx
-                del st.session_state.hiring_pdf
-                del st.session_state.hiring_docx_name
-                del st.session_state.hiring_pdf_name
+            for key in ["hiring_docx", "hiring_pdf", "hiring_docx_name", "hiring_pdf_name"]:
+                if key in st.session_state:
+                    st.session_state[key] = None if "name" not in key else ""
 
             # Define the hiring template file path
             template_path = os.path.join(os.getcwd(), template_name)
+            
+            # Verify the template exists
+            if not os.path.exists(template_path):
+                st.error(f"Template file not found: {template_path}")
+                return
 
+            
+            safe_name = ''.join(c if c.isalnum() else '_' for c in Employee_name)
+            
             # Save the hiring contract to a temporary directory
             temp_dir = tempfile.gettempdir()
-            docx_output_path = os.path.join(temp_dir, f"Hiring_{Employee_name}.docx")
-            pdf_output_path = os.path.join(temp_dir, f"Hiring_{Employee_name}.pdf")
+            docx_output_path = os.path.join(temp_dir, f"Hiring_{safe_name}.docx")
+            pdf_output_path = os.path.join(temp_dir, f"Hiring_{safe_name}.pdf")
 
             # Edit the hiring template and save the contract
             edit_hiring_template(template_path, docx_output_path, placeholders)
+            # st.info("DOCX file created successfully. Converting to PDF...")
 
             # Load the generated DOCX file into session state for download
             with open(docx_output_path, "rb") as docx_file:
                 st.session_state.hiring_docx = docx_file.read()
-                st.session_state.hiring_docx_name = f"Hiring_{Employee_name}.docx"
+                st.session_state.hiring_docx_name = f"Hiring_{safe_name}.docx"
 
-            # Convert DOCX to PDF and store in session state
-            convert_to_pdf(docx_output_path, pdf_output_path)
+            # Convert DOCX to PDF with better error handling
+            try:
+                convert_to_pdf(docx_output_path, pdf_output_path)
+                # st.info(f"PDF conversion completed. Checking result...")
+                
+                if os.path.exists(pdf_output_path):
+                    with open(pdf_output_path, "rb") as pdf_file:
+                        st.session_state.hiring_pdf = pdf_file.read()
+                        st.session_state.hiring_pdf_name = f"Hiring_{safe_name}.pdf"
+                    # st.success("PDF created successfully!")
+                else:
+                    st.warning("PDF file not found after conversion attempt.")
+            except Exception as pdf_err:
+                st.error(f"PDF Conversion Error: {pdf_err}")
+                # Still allow DOCX download even if PDF fails
+                st.warning("PDF conversion failed, but DOCX is available for download.")
 
-            with open(pdf_output_path, "rb") as pdf_file:
-                st.session_state.hiring_pdf = pdf_file.read()
-                st.session_state.hiring_pdf_name = f"Hiring_{Employee_name}.pdf"
-
-            # Debug: Check if the session_state has the files
-            pdf_data = st.session_state.get("hiring_pdf")
-            docx_data = st.session_state.get("hiring_docx")
-
-            # if docx_data:
-            #     st.write("✅ DOCX Bytes Length:", len(docx_data))
-            # else:
-            #     st.write("❌ DOCX not found in session_state.")
-
-            # if pdf_data:
-            #     st.write("✅ PDF Bytes Length:", len(pdf_data))
-            # else:
-            #     st.write("❌ PDF not found in session_state.")
-
-            # Display download buttons if data exists in session state
-            if docx_data and pdf_data:
-                col1, col2 = st.columns(2)
-                with col1:
+            # Display download buttons based on what's available
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.session_state.hiring_docx:
                     st.download_button(
                         label="📥 Download Hiring Contract (Word)",
-                        data=docx_data,
+                        data=st.session_state.hiring_docx,
                         file_name=st.session_state.hiring_docx_name,
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
-                with col2:
+                else:
+                    st.warning("DOCX file not available for download.")
+                    
+            with col2:
+                if st.session_state.hiring_pdf:
                     st.download_button(
                         label="📥 Download Hiring Contract (PDF)",
-                        data=pdf_data,
+                        data=st.session_state.hiring_pdf,
                         file_name=st.session_state.hiring_pdf_name,
                         mime="application/pdf"
                     )
+                else:
+                    st.warning("PDF file not available for download.")
+                    
         except Exception as e:
             st.error(f"An error occurred: {e}")
-    
-
+            import traceback
+            st.code(traceback.format_exc())
 
 
 def format_price(amount, currency):
@@ -414,8 +584,12 @@ def get_next_invoice_number():
 # Function to convert amount to words
 def amount_to_words(amount):
     """Convert amount to words without currency formatting."""
-    words = num2words(amount, lang='en').replace(',', '').title()
-    return words
+    try:
+        words = num2words(amount, lang='en').replace(',', '').title()
+        return words
+    except Exception as e:
+        logger.error(f"Error converting amount to words: {e}", exc_info=True)
+        return f"[Error: Unable to convert {amount} to words]"
 
 # Function to replace placeholders in DOCX
 def replace_placeholders(doc, placeholders):
@@ -453,6 +627,7 @@ def edit_invoice_template(template_name, output_path, placeholders):
         doc.save(output_path)
         return output_path
     except Exception as e:
+        logger.error(f"Error editing invoice template: {e}", exc_info=True)
         raise Exception(f"Error editing invoice template: {e}")
 
 
@@ -491,8 +666,7 @@ def generate_invoice():
         "<<Date>>": formatted_date,
         "<<Amt to word>>": amount_to_words(int(total_amount)),
     }
-
-    # Select the correct template based on payment option
+# Select the correct template based on payment option
     if payment_option == "1 Payment":
         template_name = f"Invoice Template - {region} - 1 Payment 1.docx"
         placeholders.update({
@@ -542,12 +716,9 @@ def generate_invoice():
     # Generate Invoice Button
     if st.button("Generate Invoice"):
         try:
-            # Clear previous session state data
-            if 'invoice_docx' in st.session_state:
-                del st.session_state.invoice_docx
-                del st.session_state.invoice_pdf
-                del st.session_state.invoice_docx_name
-                del st.session_state.invoice_pdf_name
+            for key in ["invoice_docx","invoice_pdf","invoice_docx_name","invoice_pdf_name"]:
+                if key in st.session_state:
+                    st.session_state[key] =None if "name" not in key else ""
 
             # Generate the next invoice number
             invoice_number = get_next_invoice_number()
@@ -556,6 +727,10 @@ def generate_invoice():
 
             # Define the invoice template file path
             template_path = os.path.join(os.getcwd(), template_name)
+
+            if not os.path.exists(template_path):
+                st.error(f"Template file not found: {template_path}")
+                return
 
             # Save the invoice to a temporary directory
             temp_dir = tempfile.gettempdir()
@@ -567,49 +742,56 @@ def generate_invoice():
             edit_invoice_template(template_path, docx_output_path, placeholders)
             
            #Save the file to session
-            if os.path.exists(docx_output_path):
-                with open(docx_output_path, "rb") as file:
-                    st.session_state.invoice_docx = file.read()
+            with open(docx_output_path, "rb") as docx_file:
+                st.session_state.invoice_docx = docx_file.read()
                 st.session_state.invoice_docx_name = f"Invoice_{sanitized_client_name}_{invoice_number}.docx"
-            else:
-                st.error("❌ DOCX file was not generated. Please check the template and data.")
-
-            # Generate PDF and store in session state
+            # Convert DOCX to PDF with better error handling
             try:
-                convert_to_pdf(docx_output_path,pdf_output_path)
+                convert_to_pdf(docx_output_path, pdf_output_path)
+                st.info(f"PDF conversion completed. Checking result...")
                 
                 if os.path.exists(pdf_output_path):
-
-                    with open(pdf_output_path, "rb") as file:
-                        st.session_state.invoice_pdf = file.read()
-                    st.session_state.invoice_pdf_name = f"Invoice_{sanitized_client_name}_{invoice_number}.pdf"
+                    with open(pdf_output_path, "rb") as pdf_file:
+                        st.session_state.invoice_pdf = pdf_file.read()
+                        st.session_state.invoice_pdf_name = f"Invoice_{sanitized_client_name}_{invoice_number}.pdf"
+                    st.success("PDF created successfully!")
                 else:
-                    st.warning("⚠️ PDF conversion failed. DOCX is available.")
-            except Exception as pdf_error:
-                st.warning(f"⚠️ PDF conversion failed: {pdf_error}. DOCX is available.")
-            
-            st.success(f"✅ Invoice #{invoice_number} generated successfully!")
+                    st.warning("PDF file not found after conversion attempt.")
+            except Exception as pdf_err:
+                st.error(f"PDF Conversion Error: {pdf_err}")
+                # Still allow DOCX download even if PDF fails
+                st.warning("PDF conversion failed, but DOCX is available for download.")
 
+            # Display download buttons based on what's available
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.session_state.invoice_docx:
+                    st.download_button(
+                        label="📥 Download Invoice (Word)",
+                        data=st.session_state.invoice_docx,
+                        file_name=st.session_state.invoice_docx_name,
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
+                else:
+                    st.warning("DOCX file not available for download.")
+                    
+            with col2:
+                if st.session_state.invoice_pdf:
+                    st.download_button(
+                        label="📥 Download Invoice (PDF)",
+                        data=st.session_state.invoice_pdf,
+                        file_name=st.session_state.invoice_pdf_name,
+                        mime="application/pdf"
+                    )
+                else:
+                    st.warning("PDF file not available for download.")
+                    
         except Exception as e:
             st.error(f"An error occurred: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
-    # Display download buttons if data exists in session state
-    if 'invoice_docx' in st.session_state and 'invoice_pdf' in st.session_state:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                label="📥 Download Invoice (Word)",
-                data=st.session_state.invoice_docx,
-                file_name=st.session_state.invoice_docx_name,
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
-        with col2:
-            st.download_button(
-                label="📥 Download Invoice (PDF)",
-                data=st.session_state.invoice_pdf,
-                file_name=st.session_state.invoice_pdf_name,
-                mime="application/pdf"
-            )
 
 def main():
     st.sidebar.title("Select Application")
