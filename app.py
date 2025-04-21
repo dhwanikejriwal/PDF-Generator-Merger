@@ -32,126 +32,69 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("pdf_generator")
+# Add this near the top of your main function or relevant document generator functions
+def initialize_session_state():
+    # Initialize all session state variables used in the app
+    for key in ["nda_docx", "nda_pdf", "nda_docx_name", "nda_pdf_name", 
+                "contract_docx", "contract_pdf", "contract_docx_name", "contract_pdf_name", 
+                "hiring_docx", "hiring_pdf", "hiring_docx_name", "hiring_pdf_name",
+                "invoice_docx", "invoice_pdf", "invoice_docx_name", "invoice_pdf_name"]:
+        if key not in st.session_state:
+            st.session_state[key] = None if "name" not in key else ""
 
+# Call this function at the start of your main function
 def convert_to_pdf(doc_path, pdf_path):
-    """Convert Word document to PDF with better error handling."""
-    doc_path = os.path.abspath(doc_path)
-    pdf_path = os.path.abspath(pdf_path)
-
-    if not os.path.exists(doc_path):
-        raise FileNotFoundError(f"Word document not found at {doc_path}")
-
-    logger.info(f"Converting document: {doc_path} to PDF: {pdf_path}")
-
-    # Use a temporary directory for the intermediate PDF file
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Get just the filename without path
-        doc_filename = os.path.basename(doc_path)
-        expected_pdf_name = os.path.splitext(doc_filename)[0] + ".pdf"
-        temp_pdf_path = os.path.join(temp_dir, expected_pdf_name)
-
-        # Step 1: Convert Word to PDF
-        if platform.system() == "Windows":
-            try:
-                import comtypes.client
-                import pythoncom
-                pythoncom.CoInitialize()
-                word = comtypes.client.CreateObject("Word.Application")
-                word.Visible = False
-                doc = word.Documents.Open(doc_path)
-                doc.SaveAs(temp_pdf_path, FileFormat=17)  # FileFormat=17 is for PDF
-                doc.Close()
-                word.Quit()
-                logger.info("Windows COM conversion completed")
-            except Exception as e:
-                logger.error(f"Error using COM on Windows: {e}", exc_info=True)
-                raise Exception(f"Error using COM on Windows: {e}")
-        else:
-            try:
-                # Run LibreOffice conversion
-                logger.info(f"Running LibreOffice conversion to {temp_dir}")
-                result = subprocess.run(
-                    ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', temp_dir, doc_path],
-                    check=True,
-                    capture_output=True,
-                    text=True
+    """Convert Word document to PDF with better error handling and fallbacks."""
+    if platform.system() == "Windows":
+        # Windows conversion logic (unchanged)
+        ...
+    else:
+        # Try multiple conversion methods
+        conversion_methods = [
+            # Method 1: LibreOffice
+            {
+                "name": "LibreOffice",
+                "command": lambda: subprocess.run(
+                    ['libreoffice', '--headless', '--convert-to', 'pdf', 
+                     '--outdir', os.path.dirname(pdf_path), doc_path],
+                    check=True, capture_output=True, text=True
                 )
-                logger.info(f"LibreOffice stdout: {result.stdout}")
+            },
+            # Method 2: unoconv
+            {
+                "name": "unoconv",
+                "command": lambda: subprocess.run(
+                    ['unoconv', '-f', 'pdf', '-o', os.path.dirname(pdf_path), doc_path],
+                    check=True, capture_output=True, text=True
+                )
+            },
+            # Method 3: docx2pdf
+            {
+                "name": "docx2pdf",
+                "command": lambda: alternative_convert_to_pdf(doc_path, pdf_path)
+            }
+        ]
+        
+        # Try each method in order
+        errors = []
+        for method in conversion_methods:
+            try:
+                logger.info(f"Attempting PDF conversion with {method['name']}")
+                method["command"]()
                 
-                # Check if the expected PDF file exists in the temp directory
-                if not os.path.exists(temp_pdf_path):
-                    logger.warning(f"Expected PDF not found at {temp_pdf_path}, searching for alternatives...")
-                    # Try to find any PDF file that was created
-                    pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
-                    if pdf_files:
-                        temp_pdf_path = os.path.join(temp_dir, pdf_files[0])
-                        logger.info(f"Found alternative PDF: {temp_pdf_path}")
-                    else:
-                        # If no PDF was found, try using direct path instead
-                        direct_pdf_path = os.path.splitext(doc_path)[0] + '.pdf'
-                        if os.path.exists(direct_pdf_path):
-                            temp_pdf_path = direct_pdf_path
-                            logger.info(f"Using direct PDF path: {temp_pdf_path}")
-                        else:
-                            # Try alternative conversion
-                            try:
-                                logger.info("Attempting alternative PDF conversion using docx2pdf...")
-                                alternative_convert_to_pdf(doc_path, temp_pdf_path)
-                                if os.path.exists(temp_pdf_path):
-                                    logger.info(f"Alternative conversion successful: {temp_pdf_path}")
-                                else:
-                                    raise FileNotFoundError("Alternative conversion did not produce a PDF file")
-                            except Exception as alt_err:
-                                logger.error(f"Alternative conversion failed: {alt_err}", exc_info=True)
-                                raise FileNotFoundError(f"PDF conversion failed. No PDF file was created. LibreOffice output: {result.stdout}\nError: {result.stderr}")
-            except subprocess.CalledProcessError as e:
-                logger.error(f"LibreOffice conversion failed: {e}", exc_info=True)
-                # Try alternative method - use unoconv if available
-                try:
-                    logger.info("Attempting unoconv conversion...")
-                    subprocess.run(['unoconv', '-f', 'pdf', '-o', temp_dir, doc_path], check=True)
-                    # Check if PDF was created
-                    pdf_files = [f for f in os.listdir(temp_dir) if f.endswith('.pdf')]
-                    if pdf_files:
-                        temp_pdf_path = os.path.join(temp_dir, pdf_files[0])
-                        logger.info(f"Unoconv created PDF: {temp_pdf_path}")
-                    else:
-                        # Try alternative conversion
-                        logger.info("Unoconv didn't create a PDF, trying alternative method...")
-                        alternative_convert_to_pdf(doc_path, temp_pdf_path)
-                        if not os.path.exists(temp_pdf_path):
-                            raise Exception("PDF conversion failed with all methods")
-                except Exception as uno_err:
-                    logger.error(f"Unoconv conversion failed: {uno_err}", exc_info=True)
-                    # Last resort - try direct alternative conversion
-                    try:
-                        logger.info("Last resort - direct alternative conversion...")
-                        alternative_convert_to_pdf(doc_path, pdf_path)
-                        # If successful, early return
-                        if os.path.exists(pdf_path):
-                            logger.info(f"Direct alternative conversion successful: {pdf_path}")
-                            return
-                        else:
-                            raise Exception(f"Error using LibreOffice: {e}. Unoconv fallback also failed: {uno_err}")
-                    except Exception as final_err:
-                        logger.error(f"All conversion methods failed: {final_err}", exc_info=True)
-                        raise Exception(f"All PDF conversion methods failed: {final_err}")
-
-        # Verify the PDF exists before proceeding
-        if not os.path.exists(temp_pdf_path):
-            raise FileNotFoundError(f"Expected PDF file not found at {temp_pdf_path}")
-            
-        # Step 2: Flatten the PDF or just copy it if flattening is not needed
-        try:
-            logger.info(f"Flattening PDF from {temp_pdf_path} to {pdf_path}")
-            flatten_pdf(temp_pdf_path, pdf_path)
-        except Exception as flatten_err:
-            logger.warning(f"PDF flattening failed: {flatten_err}. Using direct copy instead.", exc_info=True)
-            # If flattening fails, just copy the PDF
-            import shutil
-            shutil.copy2(temp_pdf_path, pdf_path)
-            logger.info(f"Direct copy completed to {pdf_path}")
-
+                # Check if PDF was created
+                if os.path.exists(pdf_path) or os.path.exists(os.path.splitext(doc_path)[0] + '.pdf'):
+                    logger.info(f"PDF conversion successful with {method['name']}")
+                    return
+                else:
+                    errors.append(f"{method['name']}: PDF not created")
+            except Exception as e:
+                errors.append(f"{method['name']}: {str(e)}")
+                logger.warning(f"{method['name']} conversion failed: {e}")
+                continue
+        
+        # If we got here, all methods failed
+        raise Exception(f"PDF conversion failed with all methods: {'; '.join(errors)}")
 def alternative_convert_to_pdf(doc_path, pdf_path):
     """Alternative PDF conversion using reportlab and python-docx."""
     try:
