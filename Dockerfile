@@ -1,26 +1,24 @@
-
-# Use a lightweight Python image
 FROM python:3.9-slim
 
-# Set the working directory
+# Install LibreOffice and other dependencies
+RUN apt-get update && apt-get install -y \
+    libreoffice \
+    fonts-liberation \
+    --no-install-recommends \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Copy your application files
-COPY . /app
-
-# Install system dependencies (LibreOffice and other tools)
-# Install system dependencies (LibreOffice and other tools)
-RUN apt-get update && \
-    apt-get install -y libreoffice libgl1-mesa-glx libglib2.0-0 && \
-    if [ ! -e /usr/bin/soffice ]; then ln -s /usr/bin/libreoffice /usr/bin/soffice; fi && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies
+# Copy and install requirements
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy all app files
+COPY . .
 
-# Expose the port Streamlit will use
-EXPOSE 8501
+# Expose the port the app runs on
+EXPOSE 8080
 
-# Set the Streamlit command with the port from $PORT
+# Command to run the app
 CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
