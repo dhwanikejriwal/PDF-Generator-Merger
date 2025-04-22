@@ -44,6 +44,8 @@ def initialize_session_state():
 
 # Call this function at the start of your main function
 def convert_to_pdf(doc_path, pdf_path):
+    logger.info(f"Converting {doc_path} to {pdf_path}")
+    logger.info(f"Platform: {platform.system()}")
     doc_path = os.path.abspath(doc_path)
     pdf_path = os.path.abspath(pdf_path)
 
