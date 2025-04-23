@@ -44,8 +44,6 @@ def initialize_session_state():
 
 # Call this function at the start of your main function
 def convert_to_pdf(doc_path, pdf_path):
-    logger.info(f"Converting {doc_path} to {pdf_path}")
-    logger.info(f"Platform: {platform.system()}")
     doc_path = os.path.abspath(doc_path)
     pdf_path = os.path.abspath(pdf_path)
 
@@ -84,46 +82,48 @@ def convert_to_pdf(doc_path, pdf_path):
 
         # Step 2: Flatten the PDF (convert to image-based PDF)
         # Save it to the final location (pdf_path) instead of keeping it inside the temp folder
-        flatten_pdf(temp_pdf_path, pdf_path)
+        # flatten_pdf(temp_pdf_path, pdf_path)
+        import shutil
+        shutil.copy(temp_pdf_path, pdf_path)
 
         # Optionally, confirm it was created
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"Flattened PDF file was not saved correctly: {pdf_path}")
 
-def flatten_pdf(input_pdf_path, output_pdf_path):
-    """
-    Converts each page of a PDF into an image and re-embeds it to create a flattened, non-editable PDF.
-    """
-    if not os.path.exists(input_pdf_path):
-        raise FileNotFoundError(f"Input PDF file not found: {input_pdf_path}")
+# def flatten_pdf(input_pdf_path, output_pdf_path):
+#     """
+#     Converts each page of a PDF into an image and re-embeds it to create a flattened, non-editable PDF.
+#     """
+#     if not os.path.exists(input_pdf_path):
+#         raise FileNotFoundError(f"Input PDF file not found: {input_pdf_path}")
 
-    try:
-        doc = fitz.open(input_pdf_path)  # Open the original PDF
-        writer = PdfWriter()
+#     try:
+#         doc = fitz.open(input_pdf_path)  # Open the original PDF
+#         writer = PdfWriter()
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            for page_num in range(len(doc)):
-                page = doc.load_page(page_num)
-                pix = page.get_pixmap(dpi=300)  # Render page to an image with 300 DPI
-                image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+#         with tempfile.TemporaryDirectory() as temp_dir:
+#             for page_num in range(len(doc)):
+#                 page = doc.load_page(page_num)
+#                 pix = page.get_pixmap(dpi=300)  # Render page to an image with 300 DPI
+#                 image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-                # Save the image as a temporary PDF
-                temp_page_path = os.path.join(temp_dir, f"temp_page_{page_num}.pdf")
-                image.save(temp_page_path, "PDF")
+#                 # Save the image as a temporary PDF
+#                 temp_page_path = os.path.join(temp_dir, f"temp_page_{page_num}.pdf")
+#                 image.save(temp_page_path, "PDF")
 
-                # Read the temporary PDF and add it to the writer
-                reader = PdfReader(temp_page_path)
-                writer.add_page(reader.pages[0])
+#                 # Read the temporary PDF and add it to the writer
+#                 reader = PdfReader(temp_page_path)
+#                 writer.add_page(reader.pages[0])
 
-        # Save the flattened PDF
-        with open(output_pdf_path, "wb") as f:
-            writer.write(f)
+#         # Save the flattened PDF
+#         with open(output_pdf_path, "wb") as f:
+#             writer.write(f)
 
-        logger.info(f"Flattened PDF saved at: {output_pdf_path}")
-    except Exception as e:
-        logger.error(f"Error in PDF flattening: {e}", exc_info=True)
-        # If flattening fails, allow the original function to handle the exception
-        raise
+#         logger.info(f"Flattened PDF saved at: {output_pdf_path}")
+#     except Exception as e:
+#         logger.error(f"Error in PDF flattening: {e}", exc_info=True)
+#         # If flattening fails, allow the original function to handle the exception
+#         raise
 
 # Common Functions (unchanged)
 def apply_formatting(run, font_name, font_size, bold=False):
