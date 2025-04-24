@@ -16,7 +16,9 @@ import uuid
 import logging
 import sys
 from num2words import num2words
-
+from google.cloud import firestore
+import firebase_admin
+from firebase_admin import credentials, firestore as admin_firestore, storage
 
 port = int(os.environ.get("PORT", 8080))  # Default to 8080
 st.set_page_config(page_title="PDF Generator")
@@ -90,41 +92,6 @@ def convert_to_pdf(doc_path, pdf_path):
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"Flattened PDF file was not saved correctly: {pdf_path}")
 
-# def flatten_pdf(input_pdf_path, output_pdf_path):
-#     """
-#     Converts each page of a PDF into an image and re-embeds it to create a flattened, non-editable PDF.
-#     """
-#     if not os.path.exists(input_pdf_path):
-#         raise FileNotFoundError(f"Input PDF file not found: {input_pdf_path}")
-
-#     try:
-#         doc = fitz.open(input_pdf_path)  # Open the original PDF
-#         writer = PdfWriter()
-
-#         with tempfile.TemporaryDirectory() as temp_dir:
-#             for page_num in range(len(doc)):
-#                 page = doc.load_page(page_num)
-#                 pix = page.get_pixmap(dpi=300)  # Render page to an image with 300 DPI
-#                 image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-#                 # Save the image as a temporary PDF
-#                 temp_page_path = os.path.join(temp_dir, f"temp_page_{page_num}.pdf")
-#                 image.save(temp_page_path, "PDF")
-
-#                 # Read the temporary PDF and add it to the writer
-#                 reader = PdfReader(temp_page_path)
-#                 writer.add_page(reader.pages[0])
-
-#         # Save the flattened PDF
-#         with open(output_pdf_path, "wb") as f:
-#             writer.write(f)
-
-#         logger.info(f"Flattened PDF saved at: {output_pdf_path}")
-#     except Exception as e:
-#         logger.error(f"Error in PDF flattening: {e}", exc_info=True)
-#         # If flattening fails, allow the original function to handle the exception
-#         raise
-
 # Common Functions (unchanged)
 def apply_formatting(run, font_name, font_size, bold=False):
     """Apply specific formatting to a run."""
@@ -133,44 +100,7 @@ def apply_formatting(run, font_name, font_size, bold=False):
     run.font.size = Pt(font_size)
     run.bold = bold
 
-# def replace_and_format(doc, placeholders, font_name, font_size, option):
-#     """Replace placeholders and apply formatting."""
-#     for para in doc.paragraphs:
-#         if para.text:
-#             for key, value in placeholders.items():
-#                 if key in para.text:
-#                     runs = para.runs
-#                     for run in runs:
-#                         if key in run.text:
-#                             run.text = run.text.replace(key, value)
-#                             if para == doc.paragraphs[0]:
-#                                 apply_formatting(run, font_name, font_size, bold=True)
-#                         else:
-#                             run.text = run.text.replace(key, value)
 
-#     for table in doc.tables:
-#         for row in table.rows:
-#             for cell in row.cells:
-#                 if cell.text.strip():
-#                     for key, value in placeholders.items():
-#                         if key in cell.text:
-#                             cell.text = cell.text.replace(key, value)
-#                             for paragraph in cell.paragraphs:
-#                                 paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT if key == "<<Address>>" else WD_ALIGN_PARAGRAPH.CENTER
-#                                 for run in paragraph.runs:
-#                                     apply_formatting(run, "Times New Roman", 11 if option == "NDA" else 12)
-#                             cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-
-# def edit_word_template(template_path, output_path, placeholders, font_name, font_size, option):
-#     """Edit Word document and apply formatting."""
-#     try:
-#         doc = Document(template_path)
-#         replace_and_format(doc, placeholders, font_name, font_size, option)
-#         doc.save(output_path)
-#         return output_path
-#     except Exception as e:
-#         logger.error(f"Error editing Word template: {e}", exc_info=True)
-#         raise Exception(f"Error editing Word template: {e}")
 
 def apply_image_placeholder(doc, placeholder_key, image_file):
     """Replace a placeholder with an image in the Word document."""
@@ -509,117 +439,6 @@ def generate_nda():
             import traceback
             st.code(traceback.format_exc())
 
-# def generate_document(option):
-#     """Streamlit UI for generating NDA or Contract documents."""
-#     if option== "NDA":
-#         st.title("NDA Generator")
-#     elif option == "Contract":
-#         st.title("Contract Generator")
-    
-
-#     base_dir = os.path.abspath(os.path.dirname(__file__))
-#     template_paths = {
-#         "NDA": os.path.join(base_dir, "NDA Template.docx"),
-#         "Contract": os.path.join(base_dir, "Contract Template.docx"),
-#     }
-
-#     # Check if template exists
-#     if not os.path.exists(template_paths[option]):
-#         st.error(f"Template file missing: {template_paths[option]}")
-#         return
-
-#     client_name = st.text_input("Enter Client Name:")
-#     company_name = st.text_input("Enter Company Name:")
-#     address = st.text_area("Enter Address:")
-#     date_field = st.date_input("Enter Date:", datetime.today())
-
-#     placeholders = {
-#         "ClientName": client_name,
-#         "CompanyName": company_name,
-#         "Address": address,
-#         "Date": date_field.strftime("%d-%m-%Y"),
-#         "Date,": date_field.strftime("%d-%m-%Y"),
-#         "ContractEndDate": date_field.replace(year=date_field.year + 1).strftime("%d-%m-%Y"),
-#     }
-
-#     if st.button(f"Generate Document"):
-#         try:
-#             # Clear previous session state data
-#             for key in ['doc_data', 'pdf_data', 'filenames']:
-#                 if key in st.session_state:
-#                     del st.session_state[key]
-
-#             formatted_date = date_field.strftime("%d %b %Y")
-#             doc_filename = f"{option} - {client_name} {formatted_date}.docx"
-#             pdf_filename = doc_filename.replace(".docx", ".pdf")
-
-#             # Create temporary files
-#             with tempfile.TemporaryDirectory() as temp_dir:
-#                 doc_path = os.path.join(temp_dir, doc_filename)
-#                 pdf_path = os.path.join(temp_dir, pdf_filename)
-
-#                 # Generate DOCX
-#                 font_size = 11 if option == "NDA" else 12
-#                 doc = Document(template_paths[option])
-#                 replace_and_format(doc, placeholders, "Times New Roman", font_size, option)
-
-#                 doc.save(doc_path)
-#                 logger.info(f"Document saved to {doc_path}")
-
-#                 # Save DOCX to session state
-#                 with open(doc_path, "rb") as doc_file:
-#                     st.session_state.doc_data = doc_file.read()
-                
-#                 # Try to convert to PDF
-#                 try:
-#                     st.info("Converting document to PDF...")
-#                     convert_to_pdf(doc_path, pdf_path)
-                    
-#                     if os.path.exists(pdf_path):
-#                         with open(pdf_path, "rb") as pdf_file:
-#                             st.session_state.pdf_data = pdf_file.read()
-#                         logger.info(f"PDF conversion successful: {pdf_path}")
-#                     else:
-#                         st.warning("PDF conversion failed. Only DOCX will be available.")
-#                         logger.warning(f"PDF file not found after conversion: {pdf_path}")
-#                 except Exception as pdf_err:
-#                     st.warning(f"Error during PDF conversion: {pdf_err}")
-#                     logger.error(f"PDF conversion error: {pdf_err}", exc_info=True)
-                
-#                 st.session_state.filenames = {
-#                     "doc": doc_filename,
-#                     "pdf": pdf_filename
-#                 }
-            
-#             st.success(f"{option} Document Generated Successfully!")
-
-#         except Exception as e:
-#             st.error(f"An error occurred: {e}")
-#             logger.error(f"Error in generate_document: {e}", exc_info=True)
-    
-#     # Display download buttons
-#     if 'doc_data' in st.session_state:
-#         col1, col2 = st.columns(2)
-#         with col1:
-#             st.download_button(
-#                 label="Download Document (Word)",
-#                 data=st.session_state.doc_data,
-#                 file_name=st.session_state.filenames["doc"],
-#                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-#                 key="download_word"
-#             )
-        
-#         if 'pdf_data' in st.session_state:
-#             with col2:
-#                 st.download_button(
-#                     label="Download Document (PDF)",
-#                     data=st.session_state.pdf_data,
-#                     file_name=st.session_state.filenames["pdf"],
-#                     mime="application/pdf",
-#                     key="download_pdf"
-#                 )
-            
-
 # Hiring Contract
 def replace_text_in_paragraph(paragraph, placeholders):
     """Replace placeholders in paragraph text."""
@@ -673,20 +492,20 @@ def generate_hiring_contract():
     # Collect inputs
     Employee_name = st.text_input("Enter Employee Name:")
     Role = st.text_input("Enter Role:")
-    date = st.date_input("Enter Date:", datetime.today())
+    date = st.date_input("Enter Today Date:", datetime.today())
     Starting_Date = st.date_input("Enter the starting date: ")
     Stipend = st.number_input("Enter the Stipend:")
     Working_hours = st.number_input("Enter the total working hours:")
-    Internship_duration = st.number_input("Enter the internship duration:")
+    Internship_duration = st.number_input("Enter the internship duration (in months):")
     First_Pay_Cheque_Date = st.date_input("Enter the First Pay Cheque Date:")
 
     placeholders = {
-        "<<Date>>": date.strftime("%d-%m-%Y"),
+        "<<Date>>": date.strftime("%d %B, %Y"),
         "<<Name>>": Employee_name,
         "<<Role>>": Role,
-        "<<Starting Date>>": Starting_Date.strftime("%d %B %Y"),
+        "<<Starting Date>>": Starting_Date.strftime("%d %B, %Y"),
         "<<Internship Duration>>": str(int(Internship_duration)),
-        "<<First Pay>>": First_Pay_Cheque_Date.strftime("%d %B %Y"),
+        "<<First Pay>>": First_Pay_Cheque_Date.strftime("%d %B, %Y"),
         "<<Stipend>>": str(Stipend),
         "<<Working Hours>>": str(int(Working_hours))
     }
@@ -1012,22 +831,142 @@ def generate_invoice():
             st.code(traceback.format_exc())
 
 
+
+# Initialize Firebase Admin only once
+if not firebase_admin._apps:
+    cred = credentials.Certificate("hv-technologies-firebase-adminsdk.json")
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': 'hv-technologies.appspot.com'
+    })
+
+# Get references
+db = admin_firestore.client()
+bucket = storage.bucket()
+
+# ========== UTILITY FUNCTIONS ==========
+
+def get_db():
+    """Returns Firestore client."""
+    return firestore.Client.from_service_account_json("hv-technologies-firebase-adminsdk.json")
+
+
+# ========== CREATE / UPLOAD ==========
+
+def upload_to_firebase(uploaded_file, name):
+    """Uploads PDF to Firebase Storage and saves metadata to Firestore."""
+    blob = bucket.blob(f"uploaded_docs/{uploaded_file.name}")
+    blob.upload_from_file(uploaded_file, content_type=uploaded_file.type)
+    blob.make_public()
+
+    link = blob.public_url
+    db.collection("ProposalPDFPage2").document.set({
+        "name": name,
+        "link": link
+    })
+
+    st.success("File uploaded successfully!")
+    st.markdown(f"[Click to View]({link})")
+
+
+# ========== READ / SHOW ==========
+
+def show_documents():
+    st.markdown("### Uploaded Documents")
+    docs = list(db.collection("ProposalPDFPage2").stream())
+
+    for idx, doc in enumerate(docs, 1):
+        doc_data = doc.to_dict()
+        name = doc_data.get("name", "No Name")
+        link = doc_data.get("link", "").strip()
+
+        st.markdown(f"**{idx}. {name}**")
+        if link.endswith(".pdf"):
+            st.markdown(f"""
+                <iframe src="{link}" width="100%" height="500px" style="border:1px solid #ccc;"></iframe>
+            """, unsafe_allow_html=True)
+        elif link:
+            st.markdown(f"🔗 [View Document]({link})")
+        else:
+            st.warning("_No link available_")
+
+
+# ========== UPDATE / DELETE ==========
+
+def update_document(doc_id, new_name, new_link):
+    db.collection("ProposalPDFPage2").document(doc_id).update({
+        "name": new_name,
+        "link": new_link.strip()
+    })
+    st.success("Document updated successfully!")
+
+def delete_document(doc_id):
+    db.collection("ProposalPDFPage2").document(doc_id).delete()
+    st.success("Document deleted successfully!")
+
+def manage_documents():
+    docs = list(db.collection("ProposalPDFPage2").stream())
+
+    if not docs:
+        st.info("No documents found.")
+        return
+
+    doc_options = {f"{doc.to_dict().get('name', 'Unnamed')} ({doc.id})": doc.id for doc in docs}
+    selected_label = st.selectbox("Select a document to update or delete", list(doc_options.keys()))
+    selected_id = doc_options[selected_label]
+    selected_data = db.collection("ProposalPDFPage2").document(selected_id).get().to_dict()
+
+    st.markdown("### Update Document")
+    with st.form("update_form"):
+        updated_name = st.text_input("Updated Name", selected_data.get("name", ""))
+        updated_link = st.text_input("Updated Link", selected_data.get("link", ""))
+        update_btn = st.form_submit_button("Update")
+        if update_btn:
+            update_document(selected_id, updated_name, updated_link)
+
+    st.markdown("###  Delete Document")
+    if st.button("Delete This Document"):
+        delete_document(selected_id)
+
+
+# ========== STREAMLIT MAIN FUNCTION ==========
+
+
 def main():
-    st.sidebar.title("Select Application")
-    app_choice = st.sidebar.radio("Choose an application:", ["NDA", "Contract", "Invoice", "Pricing List", "Proposal","Hiring Contract"])
-    if app_choice == "Invoice":
-        generate_invoice()
+    #t.set_page_config(page_title="Document Generator & Firebase Manager", layout="wide")
+    st.sidebar.title("📂 Application Menu")
     
-    elif app_choice=="Contract":
-        generate_contract()
+    section = st.sidebar.radio("Choose Section", ["📄 Document Generators", "🔥 Firebase CRUD Operations"])
 
-    elif app_choice == "NDA":
-        generate_nda()
+    if section == "📄 Document Generators":
+        doc_choice = st.sidebar.radio("Select Document Type", ["NDA", "Contract", "Hiring Contract", "Invoice"])
+        
+        if doc_choice == "NDA":
+            generate_nda()
+        elif doc_choice == "Contract":
+            generate_contract()
+        elif doc_choice == "Hiring Contract":
+            generate_hiring_contract()
+        elif doc_choice == "Invoice":
+            generate_invoice()
 
-    elif app_choice == "Hiring Contract":
-        generate_hiring_contract()
-    
+    elif section == "🔥 Firebase CRUD Operations":
+        crud_choice = st.sidebar.radio("Choose Operation", ["Upload Document", "View Documents", "Update/Delete Document"])
+        
+        if crud_choice == "Upload Document":
+            st.subheader("📤 Upload Document")
+            with st.form("upload_form"):
+                name = st.text_input("Enter Document Name")
+                uploaded_file = st.file_uploader("Choose a file", type=["pdf"])
+                submit_btn = st.form_submit_button("Upload")
 
+                if submit_btn and uploaded_file and name:
+                    upload_to_firebase(uploaded_file, name)
+
+        elif crud_choice == "View Documents":
+            show_documents()
+
+        elif crud_choice == "Update/Delete Document":
+            manage_documents()
 
 if __name__ == "__main__":
     main()

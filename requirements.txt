@@ -6,3 +6,5 @@ Pillow
 PyPDF2
 pymupdf
 num2words
+streamlit
+google-cloud-firestore
