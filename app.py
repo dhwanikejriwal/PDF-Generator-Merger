@@ -831,26 +831,20 @@ def generate_invoice():
             st.code(traceback.format_exc())
 
 
+#Firebase operations
 
+firebase_info = dict(st.secrets["FIREBASE"])
 
-
-import streamlit as st
-import firebase_admin
-from firebase_admin import credentials
-
-# Load Firebase credentials from Streamlit Secrets
-firebase_info = dict(st.secrets["FIREBASE"])   # <-- THIS FIX
-
-# Initialize Firebase
-cred = credentials.Certificate(firebase_info)
-
-# Initialize app (only if not already initialized)
+# Get the bucket name
+bucket_name = "hv-technologies.appspot.com"  
+# Initialize Firebase only if not already initialized
 if not firebase_admin._apps:
-    firebase_admin.initialize_app(cred)
+    cred = credentials.Certificate(firebase_info)
+    firebase_admin.initialize_app(cred, {
+        'storageBucket': bucket_name
+    })
 
-
-# Get references
-db = admin_firestore.client()
+# Now you can safely get the bucket
 bucket = storage.bucket()
 
 # ========== UTILITY FUNCTIONS ==========
