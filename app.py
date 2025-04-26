@@ -834,17 +834,20 @@ def generate_invoice():
 
 
 
-firebase_info = st.secrets["FIREBASE"]
+import streamlit as st
+import firebase_admin
+from firebase_admin import credentials
 
-# Convert to dict (if needed)
-firebase_dict = json.loads(json.dumps(firebase_info))
+# Load Firebase credentials from Streamlit Secrets
+firebase_info = dict(st.secrets["FIREBASE"])   # <-- THIS FIX
 
 # Initialize Firebase
-cred = credentials.Certificate(firebase_dict)
+cred = credentials.Certificate(firebase_info)
 
 # Initialize app (only if not already initialized)
 if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
+
 
 # Get references
 db = admin_firestore.client()
