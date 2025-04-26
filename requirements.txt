@@ -8,3 +8,5 @@ pymupdf
 num2words
 streamlit
 google-cloud-firestore
+firebase-admin
+google-cloud-storage

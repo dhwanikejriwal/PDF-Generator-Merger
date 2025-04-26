@@ -859,7 +859,7 @@ def upload_to_firebase(uploaded_file, name):
     blob.make_public()
 
     link = blob.public_url
-    db.collection("ProposalPDFPage2").document.set({
+    db.collection("ProposalPDFPage2").document().set({
         "name": name,
         "link": link
     })
