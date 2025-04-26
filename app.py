@@ -19,7 +19,7 @@ from num2words import num2words
 from google.cloud import firestore
 import firebase_admin
 from firebase_admin import credentials, firestore as admin_firestore, storage
-
+import json
 port = int(os.environ.get("PORT", 8080))  # Default to 8080
 st.set_page_config(page_title="PDF Generator")
 st.title("PDF Generator App")
@@ -832,12 +832,19 @@ def generate_invoice():
 
 
 
-# Initialize Firebase Admin only once
+
+
+firebase_info = st.secrets["FIREBASE"]
+
+# Convert to dict (if needed)
+firebase_dict = json.loads(json.dumps(firebase_info))
+
+# Initialize Firebase
+cred = credentials.Certificate(firebase_dict)
+
+# Initialize app (only if not already initialized)
 if not firebase_admin._apps:
-    cred = credentials.Certificate("hv-technologies-firebase-adminsdk.json")
-    firebase_admin.initialize_app(cred, {
-        'storageBucket': 'hv-technologies.appspot.com'
-    })
+    firebase_admin.initialize_app(cred)
 
 # Get references
 db = admin_firestore.client()
