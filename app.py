@@ -833,18 +833,21 @@ def generate_invoice():
 
 #Firebase operations
 
+
+# Load Firebase credentials from Streamlit secrets
 firebase_info = dict(st.secrets["FIREBASE"])
 
-# Get the bucket name
-bucket_name = "hv-technologies.appspot.com"  
-# Initialize Firebase only if not already initialized
+# Your actual Firebase Storage bucket name
+bucket_name = "hv-technologies.appspot.com"   # <- replace with YOUR real bucket name
+
+# Initialize Firebase app
 if not firebase_admin._apps:
     cred = credentials.Certificate(firebase_info)
     firebase_admin.initialize_app(cred, {
         'storageBucket': bucket_name
     })
 
-# Now you can safely get the bucket
+# Now you can access the bucket
 bucket = storage.bucket()
 
 # ========== UTILITY FUNCTIONS ==========
