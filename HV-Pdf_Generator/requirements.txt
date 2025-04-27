@@ -1,5 +1,12 @@
 streamlit
 python-docx
+comtypes; platform_system == "Windows"
+pythoncom; platform_system == "Windows"
+Pillow
+PyPDF2
+pymupdf
 num2words
-docx2pdf 
-pywin32 
+streamlit
+google-cloud-firestore
+firebase-admin
+google-cloud-storage
