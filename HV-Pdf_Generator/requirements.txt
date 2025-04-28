@@ -4,7 +4,8 @@ comtypes; platform_system == "Windows"
 pythoncom; platform_system == "Windows"
 Pillow
 PyPDF2
-pymupdf
+PyMuPDF
+pdf2docx
 num2words
 streamlit
 google-cloud-firestore

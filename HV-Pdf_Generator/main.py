@@ -4,7 +4,7 @@ from firebase_utils import upload_to_firebase , show_documents , manage_document
 from firebase_config import initialize_firebase
 
 from generators.nda import generate_nda
-from generators.hiring import generate_hiring_contract
+from generators.hiring import generate_hiring
 from generators.invoice import generate_invoice
 from generators.contract import generate_contract
 
@@ -27,7 +27,7 @@ def main():
         "Update/Delete Documents"
         }
 
-    st.set_page_config(page_title="DOcumnet Generator and firebase Manager" , layout="wide")
+    st.set_page_config(page_title="Documnet Generator and firebase Manager" , layout="wide")
     st.sidebar.title("Application menu")
 
     section = st.sidebar.radio("Choose Section",["Document Generator" , "Firebase Crud Operations"])
@@ -42,7 +42,7 @@ def main():
             generate_invoice()
 
         elif doc_choice == "Hiring Contract":
-            generate_hiring_contract()
+            generate_hiring()
 
         elif doc_choice == "Contract":
             generate_contract()
