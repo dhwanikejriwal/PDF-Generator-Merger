@@ -151,7 +151,10 @@ def prev_page():
 # ---- Main App ----
 def generate_hiring():
     # Template paths
-    template_word = "Hiring Contract.docx"
+    # Find the folder where main.py is
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    template_word = os.path.join(BASE_DIR, "Hiring Contract.docx")
+
     
     # Initialize page state
     if "page" not in st.session_state:
