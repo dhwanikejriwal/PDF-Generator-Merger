@@ -41,7 +41,7 @@ def replace_text_in_table(table, placeholders):
 
 def edit_hiring_template(template_path, output_path, placeholders):
     """Edit hiring contract template and save filled version."""
-    doc = Document(template_path)
+    doc = Document("Hiring Contract.docx")
 
     for para in doc.paragraphs:
         replace_text_in_paragraph(para, placeholders)
