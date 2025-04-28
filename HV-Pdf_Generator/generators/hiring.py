@@ -68,11 +68,15 @@ def format_price_with_commas(price_str):
         return price_str
 
 # ---- Function to Convert Word to PDF using alternative methods ----
+import subprocess
+import os
+import platform
+import streamlit as st
+
 def convert_word_to_pdf(word_path, pdf_path):
     try:
-        # First try with LibreOffice if available (most reliable method)
+        # First, try LibreOffice (best option)
         if platform.system() == "Windows":
-            # Check for LibreOffice on Windows
             libreoffice_paths = [
                 r"C:\Program Files\LibreOffice\program\soffice.exe",
                 r"C:\Program Files (x86)\LibreOffice\program\soffice.exe"
@@ -80,59 +84,47 @@ def convert_word_to_pdf(word_path, pdf_path):
             
             for lo_path in libreoffice_paths:
                 if os.path.exists(lo_path):
-                    cmd = [lo_path, '--headless', '--convert-to', 'pdf', '--outdir', 
+                    cmd = [lo_path, '--headless', '--convert-to', 'pdf', '--outdir',
                            os.path.dirname(pdf_path), word_path]
                     subprocess.run(cmd, check=True, timeout=30)
                     
-                    # Rename if needed (LibreOffice creates PDF with same base name)
+                    # Rename if needed
                     lo_pdf = os.path.splitext(word_path)[0] + '.pdf'
                     if lo_pdf != pdf_path and os.path.exists(lo_pdf):
                         os.rename(lo_pdf, pdf_path)
-                    
+
                     if os.path.exists(pdf_path):
                         return True
-        
-        elif platform.system() in ["Linux", "Darwin"]:  # Linux or Mac
-            # Check for LibreOffice on Linux/Mac
-            try:
-                cmd = ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir', 
-                       os.path.dirname(pdf_path), word_path]
-                subprocess.run(cmd, check=True, timeout=30)
-                
-                # Rename if needed
-                lo_pdf = os.path.splitext(word_path)[0] + '.pdf'
-                if lo_pdf != pdf_path and os.path.exists(lo_pdf):
-                    os.rename(lo_pdf, pdf_path)
-                
-                if os.path.exists(pdf_path):
-                    return True
-            except (subprocess.SubprocessError, FileNotFoundError):
-                pass
-        
-        # Try docx2pdf if available
-        try:
-            from docx2pdf import convert
-            convert(word_path, pdf_path)
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+
+        else:
+            # Linux / Mac (Streamlit Cloud is Linux)
+            cmd = ['libreoffice', '--headless', '--convert-to', 'pdf', '--outdir',
+                   os.path.dirname(pdf_path), word_path]
+            subprocess.run(cmd, check=True, timeout=30)
+            
+            lo_pdf = os.path.splitext(word_path)[0] + '.pdf'
+            if lo_pdf != pdf_path and os.path.exists(lo_pdf):
+                os.rename(lo_pdf, pdf_path)
+
+            if os.path.exists(pdf_path):
                 return True
-        except Exception as e:
-            st.warning(f"docx2pdf conversion failed: {e}")
-        
-        # Last resort: Try unoconv if available
+
+        # If LibreOffice not available, try unoconv
         try:
             subprocess.run(['unoconv', '-f', 'pdf', '-o', pdf_path, word_path], check=True, timeout=30)
-            if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+            if os.path.exists(pdf_path):
                 return True
         except Exception as e:
-            st.warning(f"unoconv conversion failed: {e}")
-            
-        # If we reach here, all conversion methods have failed
-        st.error("PDF conversion failed with all available methods. The Word document is still available for download.")
+            st.warning(f"unoconv method failed: {e}")
+
+        # If everything fails
+        st.error("PDF conversion failed. Word document is still available for download.")
         return False
-        
+
     except Exception as e:
-        st.error(f"Failed to convert Word to PDF: {e}")
+        st.error(f"Unexpected error during Word to PDF conversion: {e}")
         return False
+
 
 # ---- Function to Render PDF Page ----
 def render_pdf_page(pdf_path):
