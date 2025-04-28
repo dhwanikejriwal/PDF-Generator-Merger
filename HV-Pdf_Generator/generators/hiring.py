@@ -8,7 +8,7 @@ from PIL import Image
 import locale
 import subprocess
 import platform
-import docx2pdf
+
 
 # Set locale for number formatting
 locale.setlocale(locale.LC_ALL, '')
